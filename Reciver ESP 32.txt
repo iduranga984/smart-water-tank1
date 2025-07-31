@@ -1,0 +1,76 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+
+//  Wi-Fi & MQTT Details
+const char* ssid = "Iduranga";
+const char* password = "iduranga12345678";
+const char* mqttServer = "broker.hivemq.com";
+const int mqttPort = 1883;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// Relay Pin
+const int relayPin = 2;
+
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  String message;
+  for (int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
+
+  Serial.print("Message received: ");
+  Serial.println(message);
+
+  
+  if (message == "ON") {
+    digitalWrite(relayPin, HIGH); 
+    Serial.println("Relay ON");
+  } else if (message == "OFF") {
+    digitalWrite(relayPin, LOW);   
+    Serial.println("Relay OFF");
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(relayPin, OUTPUT);
+  digitalWrite(relayPin, LOW); 
+
+  // Connect to Wi-Fi
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\n WiFi connected");
+
+  
+  client.setServer(mqttServer, mqttPort);
+  client.setCallback(callback);
+  connectToMQTT();
+}
+
+
+void connectToMQTT() {
+  while (!client.connected()) {
+    Serial.print("Connecting to MQTT...");
+    if (client.connect("ESP32_Receiver")) {
+      Serial.println(" Connected to MQTT");
+      client.subscribe("relayControl");
+    } else {
+      Serial.print(" Failed. State=");
+      Serial.println(client.state());
+      delay(2000);
+    }
+  }
+}
+
+void loop() {
+  if (!client.connected()) {
+    connectToMQTT();
+  }
+  client.loop(); 
+}

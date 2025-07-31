@@ -1,0 +1,115 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+//  WiFi & MQTT 
+const char* ssid = "Iduranga";
+const char* password = "iduranga12345678";
+const char* mqttServer = "broker.hivemq.com";
+const int mqttPort = 1883;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// Ultrasonic Sensor 
+const int trigPin = 5;
+const int echoPin = 18;
+
+//  DS18B20 Sensor 
+#define ONE_WIRE_BUS 4
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+
+
+String lastState = "";
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  sensors.begin();  
+
+  // Connect to Wi-Fi
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\n WiFi connected");
+
+  
+  client.setServer(mqttServer, mqttPort);
+}
+
+void reconnectMQTT() {
+  while (!client.connected()) {
+    Serial.print("Connecting to MQTT...");
+    if (client.connect("ESP32_Sender")) {
+      Serial.println(" Connected to MQTT");
+    } else {
+      Serial.print(" Failed. State=");
+      Serial.println(client.state());
+      delay(2000);
+    }
+  }
+}
+
+long readDistanceCM() {
+  digitalWrite(trigPin, LOW); delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH); delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  long duration = pulseIn(echoPin, HIGH);
+  return duration * 0.034 / 2;
+}
+
+float readTemperatureC() {
+  sensors.requestTemperatures();
+  return sensors.getTempCByIndex(0);
+}
+
+void loop() {
+  if (!client.connected()) {
+    reconnectMQTT();
+  }
+
+  
+  long distance = readDistanceCM();
+  Serial.print(" Distance: ");
+  Serial.print(distance);
+  Serial.println(" cm");
+
+  
+  char distanceString[8];
+  dtostrf(distance, 1, 2, distanceString);
+  client.publish("distance", distanceString);
+
+
+  
+  if (distance <= 4 && lastState != "OFF") {
+  client.publish("relayControl", "OFF");
+  client.publish("pumpStatus", "OFF");  
+  lastState = "OFF";
+  Serial.println("Sent: OFF");
+} else if (distance >= 21 && lastState != "ON") {
+  client.publish("relayControl", "ON");
+  client.publish("pumpStatus", "ON");   
+  lastState = "ON";
+  Serial.println("Sent: ON");
+}
+
+
+  float temperature = readTemperatureC();
+  Serial.print(" Temperature: ");
+  Serial.print(temperature);
+  Serial.println(" °C");
+
+  
+  char tempString[8];
+  dtostrf(temperature, 1, 2, tempString);
+  client.publish("temperature", tempString);
+
+  client.loop();
+  delay(500);  
